@@ -19,31 +19,21 @@ let StabilizeCycletimeMs = 100.0
 let FixFingersCycletimeMs = 300.0
 
 let mutable hashSpace = pown 2 m
-
-let configuration = 
-    ConfigurationFactory.ParseString(
-        @"akka {            
-            stdout-loglevel : ERROR
-            loglevel : ERROR
-            log-dead-letters = 0
-            log-dead-letters-during-shutdown = off
-        }")
-
 let chordSystem = ActorSystem.Create("ChordSystem")
 
 type ChordCommands =
     | ChordStart of (int*int)
     | CreateNode of (int*IActorRef)
-    | NotifyNode of (int*IActorRef)
-    | StabilizeRing
-    | FindNewNodeSuccessor of (int*IActorRef)
-    | FoundNewNodeSuccessor of (int*IActorRef)
-    | PredecessorRequest
-    | PredecessorResponse of (int*IActorRef)
-    | KeyLookupRequest of (int*int*int)
+    | NotifyNext of (int*IActorRef)
+    | Stabilize
+    | FindNewNodeForRing of (int*IActorRef)
+    | FoundNewNodeForRing of (int*IActorRef)
+    | PrevNodeRequest
+    | PrevNodeResponse of (int*IActorRef)
+    | KeyLookup of (int*int*int)
     | FixFingers
-    | FindithSuccessor of (int*int*IActorRef)
-    | FoundFingerEntry of (int*int*IActorRef)
+    | SearchithSuccessor of (int*int*IActorRef)
+    | FingerEntryFound of (int*int*IActorRef)
     | StartLookups of (int)
     | FoundKey of (int)
     
@@ -103,15 +93,15 @@ let PrintActor (mailbox: Actor<_>) =
 let printer = spawn chordSystem "PrinterActor" PrintActor  
 
 
-let ChordNode (myId:int) (mailbox:Actor<_>) =    
-    let mutable firstNode = 0
-    let mutable mySuccessor = 0
-    let mutable mySuccessorRef = null
-    let mutable myPredecessor = 0
-    let mutable myPredecessorRef = null
-    let mutable myFingerTable = []
+let ChordFunc (myId:int) (mailbox:Actor<_>) =    
+    let mutable firstN = 0
+    let mutable nextNode = 0
+    let mutable nextNodeRef = null
+    let mutable prevNode = 0
+    let mutable prevNodeRef = null
+    let mutable FingerTable = []
     let a = FingerTableEntry(0, null)
-    let myFingerTable : FingerTableEntry[] = Array.create m a
+    let FingerTable : FingerTableEntry[] = Array.create m a
 
     let rec iterate () = 
         actor {
@@ -119,132 +109,146 @@ let ChordNode (myId:int) (mailbox:Actor<_>) =
             let sender = mailbox.Sender()
 
             match message with 
-            | CreateNode (otherId, otherRef) ->
-                mySuccessor <- otherId
-                myPredecessor <- otherId
-                mySuccessorRef <- otherRef
-                myPredecessorRef <- otherRef
+            | CreateNode (newId, newRef) ->
+                nextNode <- newId
+                prevNode <- newId
+                nextNodeRef <- newRef
+                prevNodeRef <- newRef
                 for i in 0..m-1 do
-                    let tuple = FingerTableEntry(mySuccessor, mySuccessorRef)
-                    myFingerTable.[i] <- tuple
-                chordSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromSeconds(0.0),TimeSpan.FromMilliseconds(StabilizeCycletimeMs), mailbox.Self, StabilizeRing)
+                    let tuple = FingerTableEntry(nextNode, nextNodeRef)
+                    FingerTable.[i] <- tuple
                 chordSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromSeconds(0.0),TimeSpan.FromMilliseconds(FixFingersCycletimeMs), mailbox.Self, FixFingers)
+                chordSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromSeconds(0.0),TimeSpan.FromMilliseconds(StabilizeCycletimeMs), mailbox.Self, Stabilize)
 
-            | NotifyNode(predecessorId, predecessorRef) ->
-                myPredecessor <- predecessorId
-                myPredecessorRef <- predecessorRef
+             // |Populate successor list
+                //for i = 0 to successorListLength-1 do
+                //successorList.Add(nextNode)
 
-            | FixFingers ->
-                let mutable ithFinger = 0
-                for i in 1..m-1 do
-                    ithFinger <- ( myId + ( pown 2 i ) ) % int(hashSpace)
-                    mailbox.Self <! FindithSuccessor(i, ithFinger, mailbox.Self)
+            | FingerEntryFound(i, fingerId, fingerRef) ->
+                let tuple = FingerTableEntry(fingerId, fingerRef)
+                FingerTable.[i] <- tuple
 
-            | FindithSuccessor(i, key, tellRef) ->
-                if mySuccessor < myId && (key > myId || key < mySuccessor) then
-                    tellRef <! FoundFingerEntry(i, mySuccessor, mySuccessorRef)
-                elif key <= mySuccessor && key > myId then 
-                    tellRef <! FoundFingerEntry(i, mySuccessor, mySuccessorRef)
+            | SearchithSuccessor(i, key, tRef) ->
+                if key <= nextNode && key > myId then 
+                    tRef <! FingerEntryFound(i, nextNode, nextNodeRef)
+                elif nextNode < myId && (key > myId || key < nextNode) then
+                    tRef <! FingerEntryFound(i, nextNode, nextNodeRef)
                 else 
                     let mutable Break = false
                     let mutable x = m
-                    let mutable tempVal = key
+                    let mutable temp = key
                     if myId > key then 
-                        tempVal <- key + hashSpace
+                        temp <- key + hashSpace
                     while not Break do
                         x <- x - 1
                         if x < 0 then   
-                            mySuccessorRef <! FindithSuccessor(i, key, tellRef)
+                            nextNodeRef <! SearchithSuccessor(i, key, tRef)
                             Break <- true
                         else
-                            let ithFinger = myFingerTable.[x].GetId()
-                            if (ithFinger > myId && ithFinger <= tempVal) then 
-                                let ithRef = myFingerTable.[x].GetRef()
-                                ithRef <! FindithSuccessor(i, key, tellRef)
+                            let iPosFinger = FingerTable.[x].GetId()
+                            if (iPosFinger > myId && iPosFinger <= temp) then 
+                                let ithRef = FingerTable.[x].GetRef()
+                                ithRef <! SearchithSuccessor(i, key, tRef)
                                 Break <- true                       
-                    done                 
+                    done   
+            
+            | FixFingers ->
+                let mutable iPosFinger = 0
+                for i in 1..m-1 do
+                    iPosFinger <- ( myId + ( pown 2 i ) ) % int(hashSpace)
+                    mailbox.Self <! SearchithSuccessor(i, iPosFinger, mailbox.Self)
+            
+            | NotifyNext(predecessorId, predecessorRef) ->
+                prevNode <- predecessorId
+                prevNodeRef <- predecessorRef
+              
+            | PrevNodeResponse(predecessorOfNext, itsRef) ->                    
+                if predecessorOfNext <> myId then
+                    nextNode <- predecessorOfNext
+                    nextNodeRef <- itsRef
+                // Notify the nextNode
+                nextNodeRef <! NotifyNext(myId, mailbox.Self)
 
-            | FoundFingerEntry(i, fingerId, fingerRef) ->
-                let tuple = FingerTableEntry(fingerId, fingerRef)
-                myFingerTable.[i] <- tuple
+            | PrevNodeRequest->    
+                sender <! PrevNodeResponse(prevNode, prevNodeRef)              
 
-            | StabilizeRing ->
-                if mySuccessor <> 0 then 
-                    mySuccessorRef <! PredecessorRequest
+            | Stabilize ->
 
-            | PredecessorResponse(predecessorOfSuccessor, itsRef) ->                    
-                if predecessorOfSuccessor <> myId then
-                    mySuccessor <- predecessorOfSuccessor
-                    mySuccessorRef <- itsRef
-                // NotifyNode mysuccessor
-                mySuccessorRef <! NotifyNode(myId, mailbox.Self)
-                
-            | PredecessorRequest->    
-                sender <! PredecessorResponse(myPredecessor, myPredecessorRef)
+                //if !nextNodeRef.IsNobody() then
 
-            | FoundNewNodeSuccessor(isId, isRef) ->
+                 // Remove failed successor
+                //successorList.Remove(nextNode)
+
+                 // Update successor 
+                //nextNode <- successorList[0]
+                if nextNode <> 0 then 
+                    nextNodeRef <! PrevNodeRequest
+
+            | FindNewNodeForRing(newId, seekRef) ->
+                if nextNode < myId && (newId > myId || newId < nextNode) then 
+                    seekRef <! FoundNewNodeForRing(nextNode, nextNodeRef)
+                    //printfn "\n %d (last node) Successor of %d is %d" myId newId nextNode
+                elif newId <= nextNode && newId > myId then 
+                    seekRef <! FoundNewNodeForRing(nextNode, nextNodeRef)
+                    //printfn "\n %d Successor of %d is %d" myId newId nextNode
+                else 
+                    nextNodeRef <! FindNewNodeForRing(newId, seekRef)
+           
+
+            | FoundNewNodeForRing(isId, isRef) ->
                 // Update successor information of self
-                mySuccessor <- isId
-                mySuccessorRef <- isRef
+                nextNode <- isId
+                nextNodeRef <- isRef
                 // populate fingertable entry with successor - it will get corrected in next FixFingers call
                 for i in 0..m-1 do
-                    let tuple = FingerTableEntry(mySuccessor, mySuccessorRef)
-                    myFingerTable.[i] <- tuple
-                // start StabilizeRing scheduler
-                chordSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(0.0),TimeSpan.FromMilliseconds(StabilizeCycletimeMs), mailbox.Self, StabilizeRing)
+                    let tuple = FingerTableEntry(nextNode, nextNodeRef)
+                    FingerTable.[i] <- tuple
+                // start Stabilize scheduler
+                chordSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(0.0),TimeSpan.FromMilliseconds(StabilizeCycletimeMs), mailbox.Self, Stabilize)
                 // start FixFingers scheduler
                 chordSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(0.0),TimeSpan.FromMilliseconds(FixFingersCycletimeMs), mailbox.Self, FixFingers)
-                // NotifyNode Successor
-                mySuccessorRef <! NotifyNode(myId, mailbox.Self)
+                // NotifyNext Successor
+                nextNodeRef <! NotifyNext(myId, mailbox.Self)
          
-            | KeyLookupRequest(key, hopCount, initiatedBy) ->
-                if mySuccessor < myId && (key > myId || key <= mySuccessor) then
-                    //printfn "\n iBy = %d key = %d at = %d hc = %d" initiatedBy key mySuccessor hopCount
+            | KeyLookup(key, hopCount, initiatedBy) ->
+                //if successorList.Length > 0 then
+                //	let next = closestPreceding(key, successorList)
+                //	next <! KeyLookup(key, hopCount+1, initiatedBy)
+                if nextNode < myId && (key > myId || key <= nextNode) then
+                    //printfn "\n iBy = %d key = %d at = %d hc = %d" initiatedBy key nextNode hopCount
                     printer <! FoundKey(hopCount)
-                elif key <= mySuccessor && key > myId then 
-                    //printfn "\n iby = %d key = %d at = %d hc = %d" initiatedBy key mySuccessor hopCount
+                elif key <= nextNode && key > myId then 
+                    //printfn "\n iby = %d key = %d at = %d hc = %d" initiatedBy key nextNode hopCount
                     printer <! FoundKey(hopCount)
                 else
                     let mutable Break = false 
                     let mutable x = m
-                    let mutable tempVal = key
+                    let mutable temp = key
                     if myId > key then 
-                        tempVal <- key + hashSpace
+                        temp <- key + hashSpace
                     while not Break do
                         x <- x - 1
                         if x < 0 then   
-                            mySuccessorRef <! KeyLookupRequest(key, hopCount + 1, initiatedBy)
+                            nextNodeRef <! KeyLookup(key, hopCount + 1, initiatedBy)
                             Break <- true
                         else
-                            let ithFinger = myFingerTable.[x].GetId()
-                            if (ithFinger > myId && ithFinger <= tempVal) then 
-                                let ithRef = myFingerTable.[x].GetRef()
-                                ithRef <! KeyLookupRequest(key, hopCount + 1, initiatedBy)
+                            let iPosFinger = FingerTable.[x].GetId()
+                            if (iPosFinger > myId && iPosFinger <= temp) then 
+                                let ithRef = FingerTable.[x].GetRef()
+                                ithRef <! KeyLookup(key, hopCount + 1, initiatedBy)
                                 Break <- true                       
                     done 
                 
             | StartLookups(numRequests) ->
                 //printf "\n %d Starting lookups" myId
                 let mutable tempKey = 0
-                if mySuccessor <> Node1 then 
-                    mySuccessorRef <! StartLookups(numRequests)
+                if nextNode <> Node1 then 
+                    nextNodeRef <! StartLookups(numRequests)
                 for x in 1..numRequests do
                     tempKey <- Random().Next(1, int(hashSpace))
-                    mailbox.Self <! KeyLookupRequest(tempKey, 1, myId)
+                    mailbox.Self <! KeyLookup(tempKey, 1, myId)
                     //printfn "\n %d req key = %d" myId tempKey
                     System.Threading.Thread.Sleep(800)
-            
-
-            | FindNewNodeSuccessor(newId, seekerRef) ->
-                if mySuccessor < myId && (newId > myId || newId < mySuccessor) then 
-                    seekerRef <! FoundNewNodeSuccessor(mySuccessor, mySuccessorRef)
-                    //printfn "\n %d (last node) Successor of %d is %d" myId newId mySuccessor
-                elif newId <= mySuccessor && newId > myId then 
-                    seekerRef <! FoundNewNodeSuccessor(mySuccessor, mySuccessorRef)
-                    //printfn "\n %d Successor of %d is %d" myId newId mySuccessor
-                else 
-                    mySuccessorRef <! FindNewNodeSuccessor(newId, seekerRef)
-
             | _ -> ()
 
             return! iterate()
@@ -267,10 +271,10 @@ let Actor (mailbox:Actor<_>) =
             | ChordStart(numNodes, numRequests) ->
                 Node1 <- Random().Next(int(hashSpace))
                 printfn "\n\n Added node 1: ID: %d" Node1
-                Node1_ref <- spawn chordSystem (sprintf "%d" Node1) (ChordNode Node1)
+                Node1_ref <- spawn chordSystem (sprintf "%d" Node1) (ChordFunc Node1)
                 Node2 <- Random().Next(int(hashSpace))
                 printfn "\n\n Added node 2: ID: %d" Node2
-                Node2_ref <- spawn chordSystem (sprintf "%d" Node2) (ChordNode Node2)
+                Node2_ref <- spawn chordSystem (sprintf "%d" Node2) (ChordFunc Node2)
 
                 Node1_ref <! CreateNode(Node2, Node2_ref)
                 Node2_ref <! CreateNode(Node1, Node1_ref)
@@ -282,8 +286,8 @@ let Actor (mailbox:Actor<_>) =
                         |> fun y -> y.[Random().Next(y.Length - 1)]
                     list.Add(tempNode)
                     printfn "\n\n Added node %d: ID: %d" x tempNode
-                    tempNodeRef <- spawn chordSystem (sprintf "%d" tempNode) (ChordNode tempNode)
-                    Node1_ref <! FindNewNodeSuccessor(tempNode, tempNodeRef)  
+                    tempNodeRef <- spawn chordSystem (sprintf "%d" tempNode) (ChordFunc tempNode)
+                    Node1_ref <! FindNewNodeForRing(tempNode, tempNodeRef)  
                 
                 printfn "\n Ring stabilized"
                 System.Threading.Thread.Sleep(8000)
