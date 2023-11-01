@@ -1,0 +1,80 @@
+{
+  "format": 1,
+  "restore": {
+    "/Users/vedantpatil/Documents/GitHub/P2P_Chord/P2P_Chord.fsproj": {}
+  },
+  "projects": {
+    "/Users/vedantpatil/Documents/GitHub/P2P_Chord/P2P_Chord.fsproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "/Users/vedantpatil/Documents/GitHub/P2P_Chord/P2P_Chord.fsproj",
+        "projectName": "P2P_Chord",
+        "projectPath": "/Users/vedantpatil/Documents/GitHub/P2P_Chord/P2P_Chord.fsproj",
+        "packagesPath": "/Users/vedantpatil/.nuget/packages/",
+        "outputPath": "/Users/vedantpatil/Documents/GitHub/P2P_Chord/obj/",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "/Users/vedantpatil/.nuget/NuGet/NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net7.0"
+        ],
+        "sources": {
+          "/usr/local/share/dotnet/sdk/7.0.401/FSharp/library-packs": {},
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net7.0": {
+            "targetAlias": "net7.0",
+            "projectReferences": {}
+          }
+        }
+      },
+      "frameworks": {
+        "net7.0": {
+          "targetAlias": "net7.0",
+          "dependencies": {
+            "Actor": {
+              "target": "Package",
+              "version": "[1.0.0.1, )",
+              "generatePathProperty": true
+            },
+            "Akka": {
+              "target": "Package",
+              "version": "[1.5.13, )",
+              "generatePathProperty": true
+            },
+            "Akka.Fsharp": {
+              "target": "Package",
+              "version": "[1.5.13, )",
+              "generatePathProperty": true
+            },
+            "FSharp.Core": {
+              "include": "Runtime, Compile, Build, Native, Analyzers, BuildTransitive",
+              "target": "Package",
+              "version": "[7.0.400, )",
+              "generatePathProperty": true
+            }
+          },
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/7.0.401/RuntimeIdentifierGraph.json"
+        }
+      }
+    }
+  }
+}
